@@ -2,4 +2,5 @@
 !*/
 !*.asm
 !.gitignore
+!/docs/*
 
