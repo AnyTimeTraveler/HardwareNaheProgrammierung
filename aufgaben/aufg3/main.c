@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
     char cout = *argv[4];
     char *last_replace_pos = NULL;
 
-    char *copy = malloc(strlen(input));
+    char *copy = malloc(strlen(input)+1);
 
     memdump(input, zeilen);
 
@@ -61,8 +61,7 @@ void memdump(char *string, int zeilen) {
     char *pos = string;
 
     long x = pos;
-    x = x % 16;
-    pos -= x;
+    pos = (char*)(x & ~0xf);
 
     printf("%c[4m", 27);
     // header
@@ -70,12 +69,12 @@ void memdump(char *string, int zeilen) {
     for (int i = 0; i < 16; ++i) {
         printf("%02X ", i);
     }
-    printf("         ASCII      \n");
+    printf("    0123456789abcdef\n");
     printf("%c[0m", 27);
 
     // body
     for (int i = 0; i < zeilen; ++i) {
-        printf("0x%lX    ", pos);
+        printf("0x%012lX    ", pos);
         print_line(pos);
         pos += 16;
     }
@@ -89,7 +88,7 @@ void print_line(char *pos) {
     printf("    ");
 
     for (int i = 0; i < 16; ++i) {
-        char value = *((char *) pos + i);
+        char value = pos[i]; 
 //        if ((value > 'a' && value < 'z') || (value > 'A' && value < 'Z')) {
         if (value >= ' ' && value <= '~') {
             printf("%c", value);
