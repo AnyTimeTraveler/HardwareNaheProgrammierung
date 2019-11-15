@@ -1,13 +1,12 @@
 #include <stdio.h>
-#include <evrpc.h>
 #include <stdlib.h>
 #include <string.h>
 
-void memdump(const unsigned char *string, int zeilen);
+void memdump(char *string, int zeilen);
 
-void print_line(uintptr_t pos);
+void print_line(char *pos);
 
-int memreplace(char *copy, char cin, char cout, uintptr_t *pInt);
+int memreplace(char *copy, char cin, char cout, char **pInt);
 
 int main(int argc, char **argv) {
     if (argc != 5) {
@@ -18,9 +17,9 @@ int main(int argc, char **argv) {
     int zeilen = atoi(argv[2]);
     char cin = *argv[3];
     char cout = *argv[4];
-    uintptr_t last_replace_pos;
+    char *last_replace_pos = NULL;
 
-    char *copy = malloc(1024);
+    char *copy = malloc(strlen(input));
 
     memdump(input, zeilen);
 
@@ -31,7 +30,7 @@ int main(int argc, char **argv) {
     printf("\nLaenge der Zeichenkette (inkl. \\0): %lu Byte(s)\n"
            "Ersetzen: ’%c’ mit ’%c’\n"
            "Suchzeichen wurde %d mal gefunden und ersetzt\n"
-           "zuletzt an Addr. 0x%lX\n\n",
+           "zuletzt an Addr. %p\n\n",
            strlen(input) + 1,
            cin,
            cout,
@@ -44,13 +43,13 @@ int main(int argc, char **argv) {
     return 0;
 }
 
-int memreplace(char *string, char cin, char cout, uintptr_t *last_replace_pos) {
+int memreplace(char *string, char cin, char cout, char **last_replace_pos) {
     int replacements = 0;
-    char* pos = string;
+    char *pos = string;
     while (*pos != 0) {
         if (*pos == cin) {
             *pos = cout;
-            *last_replace_pos = (uintptr_t) pos;
+            *last_replace_pos = pos;
             replacements++;
         }
         pos++;
@@ -58,10 +57,13 @@ int memreplace(char *string, char cin, char cout, uintptr_t *last_replace_pos) {
     return replacements;
 }
 
-void memdump(const unsigned char *string, int zeilen) {
-    uintptr_t pos = (uintptr_t) string;
+void memdump(char *string, int zeilen) {
+    char *pos = string;
 
-    pos = pos & -16;
+    long x = pos;
+    x = x % 16;
+    pos -= x;
+
     printf("%c[4m", 27);
     // header
     printf("   Pointer        ");
@@ -79,10 +81,9 @@ void memdump(const unsigned char *string, int zeilen) {
     }
 }
 
-void print_line(uintptr_t pos) {
+void print_line(char *pos) {
     for (int i = 0; i < 16; ++i) {
-        unsigned char value = *((unsigned char *) pos + i);
-        printf("%02X ", value);
+        printf("%02X ", pos[i]);
     }
 
     printf("    ");
