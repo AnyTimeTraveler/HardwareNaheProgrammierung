@@ -12,6 +12,8 @@ status		db 00000000b	; Statusbyte
 ;		   ||||| +---------> Tonfolge (1, an) / (0, aus)
 ;		   +++++-----------> Aktuelle note (0-23 =>c4-b5)
 
+next_action     dw main
+
 
 ; Konstanten
 intab0		equ 20h		; Adresse Interrupttabelle PIT, Kanal 1
@@ -66,9 +68,17 @@ start:
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getätigt werden, Zählung der Teile, etc.
 
-again:		
-	; Hintergrundprogramm
-	jmp again
+main:
+        call check_button
+        jmp [next_action]
+
+
+
+
+next_note:
+        jmp main
+
+
 
 
 
