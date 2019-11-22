@@ -13,6 +13,7 @@ status		db 00000000b	; Statusbyte
 ;		   +++++-----------> Aktuelle note (0-23 =>c4-b5)
 
 next_action     dw main
+last_input      db 0
 
 
 ; Konstanten
@@ -50,7 +51,9 @@ outkey		equ 15h		; Taste "OUT"
 sseg7		equ 9eh		; Segmentanzeige 7
 tcticks		equ 1843	; 1843200 Hz / ????? = 1000 Hz => 1 ms
 				; Zeitkonstante fuer Sequencer-ISR
-tcfreq          equ 0           ; unknown
+
+
+tcfreq          equ 0           ; not needed for now (tonfolge)
 
 start:
 
@@ -64,7 +67,7 @@ start:
 	mov al, 0
 	out ppi_a, al
 	out leds, al
-
+        
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getätigt werden, Zählung der Teile, etc.
 
@@ -75,9 +78,15 @@ check_button:
         xor dx, dx
         mov dl, 0x80
         in al, dx
+        
+        mov cl, [last_input]    ; check if equal to last round
+        cmp al, cl
+        je main
+        mov [last_input], al
+
         mov ah, al
         and al, 7
-        cmp al, 7              ; 0b00000111
+        cmp al, 7               ; 0b00000111
         jne calc_button         ; if no button pressed
         call clear_screen
         jmp main
@@ -107,11 +116,15 @@ shift_loop:
 found_row:
         mov bl, ah
         xor bh, bh
-        mov word ax, [tonleiter+bx]
         mov dl, 1
         mov ah, 4
         int 6
         
+        mov word ax, [tonleiter+bx]
+        mov bx, ax
+       
+        call pit1setscaler
+
         jmp main
 
 
@@ -145,41 +158,41 @@ init:
 
 ; PIT-Init.
 
-	mov al, 01110110b	; Kanal 1, Mode 3, 16-Bit ZK
+	mov al, 0b01110110	; Kanal 1, Mode 3, 16-Bit ZK
 	out pitc, al		; Steuerkanal
-	mov al, tcfreq & 0ffh	; Low-Teil Zeitkonstante
+	mov al, tcfreq & 0xff	; Low-Teil Zeitkonstante
 	out pit1, al
 	mov al, tcfreq >> 8	; High-Teil Zeitkonstante
 	out pit1, al
 
-	mov al, 10110110b	; Kanal 2, Mode 3, 16-Bit ZK
+	mov al, 0b10110110	; Kanal 2, Mode 3, 16-Bit ZK
 	out pitc, al		; Steuerkanal
-	mov al, tcticks & 0ffh	; Low-Teil Zeitkonstante
+	mov al, tcticks & 0xff	; Low-Teil Zeitkonstante
 	out pit2, al
 	mov al, tcticks >> 8	; High-Teil Zeitkonstante
 	out pit2, al
 
 
 ; PPI-Init.
-	mov al, 10001011b	; PPI A/B/C Mode 0, A Output, sonst Input
+	mov al, 0b10001011	; PPI A/B/C Mode 0, A Output, sonst Input
 	out ppi_ctl, al
 	jmp short $+2		; I/O-Delay
 	mov al, 0		; LED's aus (high aktiv)
 	out ppi_a, al
 	
 ; PIC-Init.
-	mov al, 00010011b	; ICW1, ICW4 benoetigt, Bit 2 egal, 
+	mov al, 0b00010011	; ICW1, ICW4 benoetigt, Bit 2 egal, 
 				; Flankentriggerung
 	out icw_1, al
 	jmp short $+2		; I/O-Delay
-	mov al, 00001000b	; ICW2, auf INT 8 gemapped
+	mov al, 0b00001000	; ICW2, auf INT 8 gemapped
 	out icw_2_4, al
 	jmp short $+2		; I/O-Delay
-	mov al, 00010001b	; ICW4, MCS-86, EOI, non-buffered,
+	mov al, 0b00010001	; ICW4, MCS-86, EOI, non-buffered,
 				; fully nested
 	out icw_2_4, al
 	jmp short $+2		; I/O-Delay
-	mov al, 01111100b	; Kanal 0, 1 + 7 am PIC demaskieren
+	mov al, 0b01111100	; Kanal 0, 1 + 7 am PIC demaskieren
 				; PIT K1, K2 und Lichttaster
 	out ocw_1, al
 	
@@ -206,10 +219,11 @@ isr_sequencer_out: ; Ausgang aus dem Service
 	out ocw_2_3, al
 	pop ax
 	iret
-	
+
 	
 isr_freqtimer: ; Timer fuer lautsprecher
-	push ax	
+	push ax
+
 
 isr_freqtimer_out: ; Ausgang aus dem Service
 	mov al, eoi		; EOI an PIC
