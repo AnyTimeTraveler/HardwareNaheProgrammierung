@@ -50,6 +50,7 @@ outkey		equ 15h		; Taste "OUT"
 sseg7		equ 9eh		; Segmentanzeige 7
 tcticks		equ 1843	; 1843200 Hz / ????? = 1000 Hz => 1 ms
 				; Zeitkonstante fuer Sequencer-ISR
+tcfreq          equ 0           ; unknown
 
 start:
 
@@ -69,15 +70,48 @@ start:
 ; Hier sollten Ausgaben auf das Display getätigt werden, Zählung der Teile, etc.
 
 main:
-        call check_button
-        jmp [next_action]
+        jmp check_button
 
+check_button:
+        xor dx, dx
+        mov dl, 0x80
+        in al, dx
+        mov ah, al
+        and al, 7
+        test al, 7              ; 0b00000111
+        je main                ; if no button pressed
+        
+        times 3 shr ah, 1       ; ah=column and index for xlat
 
+        push ax
+        mov bl, al
+        mov ah, 4
+        mov dl, 7
+        int 6
+        pop ax
+        push ax
+        mov bl, ah
+        mov ah, 4
+        mov dl, 4
+        int 6
+        pop ax
 
+shift_loop:
+        shr al, 1
+        jnc found_row
+        add ah, 8
+        jmp shift_loop
 
-next_note:
+found_row:
+        mov al, ah
+        mov bx, tonleiter
+        xlat
+        mov bl, al
+        mov dl, 1
+        mov ah, 4
+        int 6
+        
         jmp main
-
 
 
 
@@ -87,7 +121,7 @@ next_note:
 ; Parameter: BX => neuer scaler für kanal 1
 ; Zerst�rt al und bl
 pit1setscaler: 
-	mov al, 01110110b	; Kanal 1, Mode 3, 16-Bit ZK
+	mov al, 0b01110110	; Kanal 1, Mode 3, 16-Bit ZK
 	out pitc, al		; Steuerkanal
 	mov al, bl	; Low-Teil Zeitkonstante
 	out pit1, al
