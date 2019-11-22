@@ -123,6 +123,9 @@ found_row:
         mov word ax, [tonleiter+bx]
         mov bx, ax
        
+
+        ; TODO: Calculate scaler properly
+        ; bx = 1843200 / (f * 2)
         call pit1setscaler
 
         jmp main
@@ -224,6 +227,7 @@ isr_sequencer_out: ; Ausgang aus dem Service
 isr_freqtimer: ; Timer fuer lautsprecher
 	push ax
 
+        
 
 isr_freqtimer_out: ; Ausgang aus dem Service
 	mov al, eoi		; EOI an PIC
