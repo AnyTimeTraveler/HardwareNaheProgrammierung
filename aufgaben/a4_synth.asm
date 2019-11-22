@@ -58,14 +58,13 @@ start:
 
 	call init		; Controller und Interruptsystem scharfmachen
 
-	mov ah, clrscr		; Anzeige aus
-	int conout
+        call clear_screen
 	
 	mov byte [status], 20h	; Init. Statusbyte und alle LEDs
 	mov al, 0
 	out ppi_a, al
 	out leds, al
-	mov cx, 0
+
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getätigt werden, Zählung der Teile, etc.
 
@@ -78,9 +77,12 @@ check_button:
         in al, dx
         mov ah, al
         and al, 7
-        test al, 7              ; 0b00000111
-        je main                ; if no button pressed
-        
+        cmp al, 7              ; 0b00000111
+        jne calc_button         ; if no button pressed
+        call clear_screen
+        jmp main
+
+calc_button:
         times 3 shr ah, 1       ; ah=column and index for xlat
 
         push ax
@@ -103,10 +105,9 @@ shift_loop:
         jmp shift_loop
 
 found_row:
-        mov al, ah
-        mov bx, tonleiter
-        xlat
-        mov bl, al
+        mov bl, ah
+        xor bh, bh
+        mov word ax, [tonleiter+bx]
         mov dl, 1
         mov ah, 4
         int 6
@@ -114,6 +115,13 @@ found_row:
         jmp main
 
 
+
+clear_screen:
+        push ax
+	mov ah, clrscr		; Anzeige aus
+	int conout
+        pop ax
+        ret
 
 
 ; setPit1 
