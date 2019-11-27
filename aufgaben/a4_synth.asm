@@ -5,102 +5,80 @@
 
 ; Variablen
 
-status		db 00000000b	; Statusbyte
+status		db 00000000b		; Statusbyte
 ;		   xxxxx xx
 ;		   ||||| ||
 ;		   ||||| |+--------> Ton (1, an) / (0, aus)
 ;		   ||||| +---------> Tonfolge (1, an) / (0, aus)
 ;		   +++++-----------> Aktuelle note (0-23 =>c4-b5)
 
-last_input      db 0            ; Last keyboad input
-play_note       db 0            ; 1 if note should be played, 0 otherwise
-speaker_swing   db 0            ; speaker swing 'direction'
+last_input	db 0			; Last keyboad input
+play_note	db 0			; 1 if note should be played, 0 otherwise
+speaker_swing	db 0			; speaker swing 'direction'
 
-sequence_fire   db 0            ; 1 if tonfolge should advance
-speaker_fire    db 0            ; 1 if speaker should swing
-record_mode	db 0		; 1 if in record mode
-play_mode	db 0		; 1 if in play mode
+sequence_fire	db 0			; 1 if tonfolge should advance
+speaker_fire	db 0			; 1 if speaker should swing
+record_mode	db 0			; 1 if in record mode
+play_mode	db 0			; 1 if in play mode
 
-data_index	dw 0		; index of currently played byte
-data_length	dw 1024		; length of data area
-index_counter	dw 0		; milliseconds in the current index
-index_length	dw 500		; length of a takt in ms
+data_index	dw 0			; index of currently played byte
+data_length	dw 1024			; length of data area
+index_counter	dw 0			; milliseconds in the current index
+index_length	dw 0			; length of a takt in ms
 
 ; Konstanten
-intab0		equ 20h		; Adresse Interrupttabelle PIT, Kanal 1
+intab0		equ 20h			; Adresse Interrupttabelle PIT, Kanal 1
 intab1		equ intab0 + 1 * 4	; Adresse Interrupttabelle PIT, Kanal 2
 intab7		equ intab0 + 7 * 4	; Adresse Interrupttabelle Lichttaster
-eoi		equ 20h		; End Of Interrupt (EOI)
-clrscr		equ 0		; Clear Screen
-getkey		equ 1		; Funktion auf Tastatureingabe warten
-ascii		equ 2		; Funktion ASCII-Zeichenausgabe
-hexbyte		equ 4		; HEX-Byte Ausgabe
-conin		equ 5		; Console IN
-conout		equ 6		; Console OUT
-pitc		equ 0a6h	; Steuerkanal PIT
-pit1		equ 0a2h	; Counter 1 PIT
-pit2		equ 0a4h	; Counter 2 PIT
-ppi_ctl		equ 0b6h	; Steuerkanal PPI (Parallelinterface)
-ppi_a		equ 0b0h	; Kanal A PPI
-ppi_pa0		equ 1		; LED 0
-ppi_pa1		equ 2		; LED 1
-ppi_pa2		equ 4		; LED 2
-ppi_pa3		equ 8		; Lautsprecher
-ppi_pa6		equ 1 << 6	; Servomotor
-ppi_b		equ 0b2h	; Kanal B PPI
-ppi_c		equ 0b4h	; Kanal C PPI
-ocw_2_3		equ 0c0h	; PIC (Interruptcontroller), OCW2,3
-ocw_1		equ 0c2h	; PIC (Interruptcontroller), OCW1
-icw_1		equ 0c0h	; PIC (Interruptcontroller), ICW1
-icw_2_4		equ 0c2h	; PIC (Interruptcontroller), ICW2,4
-leds		equ 0		; LED Port
-schalter	equ 0		; Schalterport
-keybd		equ 80h		; SBC-86 Tastatur
-gokey		equ 11h		; Taste "GO"
-outkey		equ 15h		; Taste "OUT"
-sseg7		equ 9eh		; Segmentanzeige 7
-tcticks		equ 1843	; 1843200 Hz / ????? = 1000 Hz => 1 ms
-				; Zeitkonstante fuer Sequencer-ISR
-
-
-tcfreq          equ 18430           ; not needed for now (tonfolge)
+eoi		equ 20h			; End Of Interrupt (EOI)
+clrscr		equ 0			; Clear Screen
+getkey		equ 1			; Funktion auf Tastatureingabe warten
+ascii		equ 2			; Funktion ASCII-Zeichenausgabe
+hexbyte		equ 4			; HEX-Byte Ausgabe
+conin		equ 5			; Console IN
+conout		equ 6			; Console OUT
+pitc		equ 0a6h		; Steuerkanal PIT
+pit1		equ 0a2h		; Counter 1 PIT
+pit2		equ 0a4h		; Counter 2 PIT
+ppi_ctl		equ 0b6h		; Steuerkanal PPI (Parallelinterface)
+ppi_a		equ 0b0h		; Kanal A PPI
+ppi_pa0		equ 1			; LED 0
+ppi_pa1		equ 2			; LED 1
+ppi_pa2		equ 4			; LED 2
+ppi_pa3		equ 8			; Lautsprecher
+ppi_pa6		equ 1 << 6		; Servomotor
+ppi_b		equ 0b2h		; Kanal B PPI
+ppi_c		equ 0b4h		; Kanal C PPI
+ocw_2_3		equ 0c0h		; PIC (Interruptcontroller), OCW2,3
+ocw_1		equ 0c2h		; PIC (Interruptcontroller), OCW1
+icw_1		equ 0c0h		; PIC (Interruptcontroller), ICW1
+icw_2_4		equ 0c2h		; PIC (Interruptcontroller), ICW2,4
+leds		equ 0			; LED Port
+schalter	equ 0			; Schalterport
+keybd		equ 80h			; SBC-86 Tastatur
+gokey		equ 11h			; Taste "GO"
+outkey		equ 15h			; Taste "OUT"
+sseg7		equ 9eh			; Segmentanzeige 7
+tcticks		equ 1843		; 1843200 Hz / 1843 = 1000 Hz =>  1 ms
+					; Zeitkonstante fuer Sequencer-ISR
+tcfreq		equ 18432		; 1843200 Hz / 18432 = 100 Hz => 10 ms
 
 start:
 
 ; Initialisierung
 
-	call init		; Controller und Interruptsystem scharfmachen
+	call init			; Controller und Interruptsystem scharfmachen
 
-        call clear_screen
-	
-	mov byte [status], 20h	; Init. Statusbyte und alle LEDs
-	mov al, 0
+	call clear_screen
+
+	mov byte [status], 20h		; Init. Statusbyte und alle LEDs
+	mov byte al, 0
 	out ppi_a, al
 	out leds, al
 
-	mov cx, 23
-	
-divide:	mov bx, cx
-	add bx, cx
-	mov word ax, [tonleiter+bx] ; for division
-        mov bx, ax
-	add bx, ax
-	
-	; divide to get scaler
-        ; DX:AX = 1843200
-        mov dx, 28
-        mov ax, 8192
-        div bx
-	mov bx, cx
-	add bx, cx
-        mov [tonleiter+bx], ax
-	loop divide
-
-        mov bx, tcticks
-        call pit1setscaler
+	call devide_tonleiter
 
 
-        
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
@@ -118,15 +96,12 @@ main_a: ; check for sequence interrupt
 	je main_b
 	call advance_sequence
 	mov byte [sequence_fire], 0
-	
+
 main_b:	; update switch states
 	call read_switches
-	
+
 	; check for button press
-        jmp check_button
-
-
-
+	jmp check_button
 
 
 check_switches:
@@ -142,214 +117,225 @@ check_a:shr al, 1
 check_b:ret
 
 
-	
-
-
-
 check_button:
-        in al, keybd
-        
-        mov byte cl, [last_input]    ; check if equal to last round
-        cmp al, cl
-        je main
-        mov byte [last_input], al
+	in al, keybd
 
-        mov byte ah, al
-        and al, 7
-        cmp al, 7               ; 0b00000111
-        jne calc_button         ; if no button pressed
-	
+	mov byte cl, [last_input]	; check if equal to last round
+	cmp al, cl
+	je main
+	mov byte [last_input], al
+
+	mov byte ah, al
+	and al, 7
+	cmp al, 7			; 0b00000111
+	jne calc_button			; if no button pressed
+
 	mov byte [play_note], 0
-        call clear_screen
-        jmp main
+	call clear_screen
+	jmp main
 
 calc_button:
-        times 3 shr ah, 1       ; ah=column and index for xlat
+	times 3 shr ah, 1		; ah=column and index for xlat
 
 	; display row and column
-	mov dx, 0
-        push ax
-        mov bl, al
-        mov ah, 4
-        mov dl, 7
-        int 6
-        pop ax
-        push ax
-        mov bl, ah
-        mov ah, 4
-        mov dl, 4
-        int 6
-        pop ax
+	mov word dx, 0
+	push ax
+	mov byte bl, al
+	mov byte ah, 4
+	mov byte dl, 7
+	int 6
+	pop ax
+	push ax
+	mov byte bl, ah
+	mov byte ah, 4
+	mov byte dl, 4
+	int 6
+	pop ax
 
 shift_loop:
-        shr al, 1
-        jnc found_row
-        add ah, 8
-        jmp shift_loop
+	shr al, 1
+	jnc found_row
+	add ah, 8
+	jmp shift_loop
 
 found_row:
 	; AH contains table index now
-        mov bl, ah
-        xor bh, bh
-        mov dl, 1
-        mov ah, 4
-        int 6
+	mov byte bl, ah
+	xor bh, bh
+	mov byte dl, 1
+	mov byte ah, 4
+	int 6
 	; BL contains table index now
-	
+
 	xor bh, bh
 	add bl, bl
-        mov word ax, [tonleiter+bx] ; for division
-        mov bx, ax
+	mov word ax, [tonleiter+bx]	; for division
+	mov word bx, ax
 	add bx, ax
-	
+
 	; divide to get scaler
-        ; DX:AX = 1843200
-        mov dx, 28
-        mov ax, 8192
-        div bx
-        mov bx, ax
-	
+	; DX:AX = 1843200
+	mov word dx, 28
+	mov word ax, 8192
+	div bx
+	mov word bx, ax
+
 	call pit1setscaler
 
 	; enable sound
 	mov byte [play_note], 1
-        jmp main
-
+	jmp main
 
 
 clear_screen:
-        push ax
-	mov ah, clrscr		; Anzeige aus
+	push ax
+	mov byte ah, clrscr		; Anzeige aus
 	int conout
-        pop ax
-        ret
+	pop ax
+	ret
 
 
 swing:
-	mov al, [play_note]
-        cmp al, 0
-        je swing_ret		; jump to end if play_note is 0
+	mov byte al, [play_note]
+	cmp al, 0
+	je swing_ret			; jump to end if play_note is 0
 
-        mov al, [speaker_swing]
-        xor al, ppi_pa3
-        mov [speaker_swing], al
-        out ppi_a, al
+	mov byte al, [speaker_swing]
+	xor al, ppi_pa3
+	mov [speaker_swing], al
+	out ppi_a, al
 
 swing_ret:
 	ret
 
 
 advance_sequence:
-	mov al, [record_mode]
+	mov byte al, [record_mode]
 	cmp al, 0
 	je advance_sequence_play_mode
-	
-	mov al, [in]
+
 
 	ret
 
 advance_sequence_play_mode:
-	mov al, [play_mode]
+	mov byte al, [play_mode]
 	cmp al, 0
 	jne advance_ret
 
 
 advance_ret:
 	ret
+divide_tonleiter:
+	mov word cx, 23			; for length of tonleiter
+divide:	mov word bx, cx			; double, since we jump words
+	add bx, cx
+	mov word ax, [tonleiter+bx]	; read value
+	mov word bx, ax
+	add bx, ax
+
+	; divide to get scaler
+	; DX:AX = 1843200
+	mov word dx, 28
+	mov word ax, 8192
+	div bx
+	mov word bx, cx
+	add bx, cx
+	mov [tonleiter+bx], ax
+	loop divide
 
 
-; setPit1 
+
+; setPit1
 ; setzt Zeitkosntante für PIT1
 ; Parameter: BX => neuer scaler fuer kanal 1
 ; Zerstört al und bl
-pit1setscaler: 
-	mov al, 0b01110110	; Kanal 1, Mode 3, 16-Bit ZK
-	out pitc, al		; Steuerkanal
-	mov al, bl	; Low-Teil Zeitkonstante
+pit1setscaler:
+	mov byte al, 0b01110110		; Kanal 1, Mode 3, 16-Bit ZK
+	out pitc, al			; Steuerkanal
+	mov byte al, bl			; Low-Teil Zeitkonstante
 	out pit1, al
-	mov al, bh	; High-Teil Zeitkonstante
+	mov byte al, bh			; High-Teil Zeitkonstante
 	out pit1, al
 	ret
 
-		
+
 ; Initialisierung Controller und Interruptsystem
 
 init:
-	cli			; Interrupts aus
+	cli				; Interrupts aus
 
 ; PIT-Init.
 
-	mov al, 0b01110110	; Kanal 1, Mode 3, 16-Bit ZK
-	out pitc, al		; Steuerkanal
-	mov al, tcfreq & 0xff	; Low-Teil Zeitkonstante
+	mov byte al, 0b01110110		; Kanal 1, Mode 3, 16-Bit ZK
+	out pitc, al			; Steuerkanal
+	mov byte al, tcfreq & 0xff	; Low-Teil Zeitkonstante
 	out pit1, al
-	mov al, tcfreq >> 8	; High-Teil Zeitkonstante
+	mov byte al, tcfreq >> 8	; High-Teil Zeitkonstante
 	out pit1, al
 
-	mov al, 0b10110110	; Kanal 2, Mode 3, 16-Bit ZK
-	out pitc, al		; Steuerkanal
-	mov al, tcticks & 0xff	; Low-Teil Zeitkonstante
+	mov byte al, 0b10110110		; Kanal 2, Mode 3, 16-Bit ZK
+	out pitc, al			; Steuerkanal
+	mov byte al, tcticks & 0xff	; Low-Teil Zeitkonstante
 	out pit2, al
-	mov al, tcticks >> 8	; High-Teil Zeitkonstante
+	mov byte al, tcticks >> 8	; High-Teil Zeitkonstante
 	out pit2, al
 
 
 ; PPI-Init.
-	mov al, 0b10001011	; PPI A/B/C Mode 0, A Output, sonst Input
+	mov byte al, 0b10001011		; PPI A/B/C Mode 0, A Output, sonst Input
 	out ppi_ctl, al
-	jmp short $+2		; I/O-Delay
-	mov al, 0		; LED's aus (high aktiv)
+	jmp short $+2			; I/O-Delay
+	mov byte al, 0			; LED's aus (high aktiv)
 	out ppi_a, al
-	
+
 ; PIC-Init.
-	mov al, 0b00010011	; ICW1, ICW4 benoetigt, Bit 2 egal, 
-				; Flankentriggerung
+	mov byte al, 0b00010011		; ICW1, ICW4 benoetigt, Bit 2 egal,
+					; Flankentriggerung
 	out icw_1, al
-	jmp short $+2		; I/O-Delay
-	mov al, 0b00001000	; ICW2, auf INT 8 gemapped
+	jmp short $+2			; I/O-Delay
+	mov byte al, 0b00001000		; ICW2, auf INT 8 gemapped
 	out icw_2_4, al
-	jmp short $+2		; I/O-Delay
-	mov al, 0b00010001	; ICW4, MCS-86, EOI, non-buffered,
-				; fully nested
+	jmp short $+2			; I/O-Delay
+	mov byte al, 0b00010001		; ICW4, MCS-86, EOI, non-buffered,
+					; fully nested
 	out icw_2_4, al
-	jmp short $+2		; I/O-Delay
-	mov al, 0b01111100	; Kanal 0, 1 + 7 am PIC demaskieren
-				; PIT K1, K2 und Lichttaster
+	jmp short $+2			; I/O-Delay
+	mov byte al, 0b01111100		; Kanal 0, 1 + 7 am PIC demaskieren
+					; PIT K1, K2 und Lichttaster
 	out ocw_1, al
-	
-; Interrupttabelle init.	
-	
-	mov word [intab0], isr_freqtimer	; Interrupttabelle (Timer K1) 
+
+; Interrupttabelle init.
+
+	mov word [intab0], isr_freqtimer; Interrupttabelle (Timer K1)
 					; initialisieren (Offset)
 	mov [intab0 + 2], cs		; (Segmentadresse)
-	
-	mov word [intab1], isr_sequencer	; Interrupttabelle (Timer K2) 
+
+	mov word [intab1], isr_sequencer; Interrupttabelle (Timer K2)
 					; initialisieren (Offset)
 	mov [intab1 + 2], cs		; (Segmentadresse)
-	
+
 	sti				; ab jetzt Interrupts
 	ret
 
 ;------------------------ Serviceroutinen -----------------------------------
 
-isr_sequencer: ; Timer fuer abspielen der Tonfolge
+isr_sequencer:				; Timer fuer abspielen der Tonfolge
 	push ax
 	mov byte [sequence_fire], 1
 
-isr_sequencer_out: ; Ausgang aus dem Service
-	mov al, eoi		; EOI an PIC
+isr_sequencer_out:			; Ausgang aus dem Service
+	mov byte al, eoi		; EOI an PIC
 	out ocw_2_3, al
 	pop ax
 	iret
 
-	
 
-isr_freqtimer: ; Timer fuer lautsprecher
+isr_freqtimer:				; Timer fuer lautsprecher
 	push ax
 	mov byte [speaker_fire], 1
 
-isr_freqtimer_out: ; Ausgang aus dem Service
-	mov al, eoi		; EOI an PIC
+isr_freqtimer_out:			; Ausgang aus dem Service
+	mov byte al, eoi		; EOI an PIC
 	out ocw_2_3, al
 	pop ax
 	iret
@@ -381,6 +367,9 @@ tonleiter	dw 262 ; c4   0
 		dw 932 ; a#5  22
 		dw 987 ; b5   23
 
+; song data goes here
+song_data	resw 1024
 
-song_data	db 0	; song data goes here
+; incbin "music.bin"
 
+; vim:
