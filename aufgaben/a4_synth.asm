@@ -18,7 +18,13 @@ speaker_swing   db 0            ; speaker swing 'direction'
 
 sequence_fire   db 0            ; 1 if tonfolge should advance
 speaker_fire    db 0            ; 1 if speaker should swing
+record_mode	db 0		; 1 if in record mode
+play_mode	db 0		; 1 if in play mode
 
+data_index	dw 0		; index of currently played byte
+data_length	dw 1024		; length of data area
+index_counter	dw 0		; milliseconds in the current index
+index_length	dw 500		; length of a takt in ms
 
 ; Konstanten
 intab0		equ 20h		; Adresse Interrupttabelle PIT, Kanal 1
@@ -72,7 +78,6 @@ start:
 	out ppi_a, al
 	out leds, al
 
-	; 0119
 	mov cx, 23
 	
 divide:	mov bx, cx
@@ -99,7 +104,6 @@ divide:	mov bx, cx
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
-	; B011F
 main:
 	; check for speaker swing interrupt
 	mov byte al, [speaker_fire]
@@ -115,8 +119,32 @@ main_a: ; check for sequence interrupt
 	call advance_sequence
 	mov byte [sequence_fire], 0
 	
-main_b:	; check for button press
+main_b:	; update switch states
+	call read_switches
+	
+	; check for button press
         jmp check_button
+
+
+
+
+
+check_switches:
+	mov byte [record_mode], 0
+	mov byte [play_mode], 0
+	in al, schalter
+	shr al, 1
+	jnc check_a
+	mov byte [record_mode], 1
+check_a:shr al, 1
+	jnc check_b
+	mov byte [play_mode], 1
+check_b:ret
+
+
+	
+
+
 
 check_button:
         in al, keybd
@@ -207,12 +235,26 @@ swing:
         mov [speaker_swing], al
         out ppi_a, al
 
-
 swing_ret:
 	ret
 
 
 advance_sequence:
+	mov al, [record_mode]
+	cmp al, 0
+	je advance_sequence_play_mode
+	
+	mov al, [in]
+
+	ret
+
+advance_sequence_play_mode:
+	mov al, [play_mode]
+	cmp al, 0
+	jne advance_ret
+
+
+advance_ret:
 	ret
 
 
@@ -338,4 +380,7 @@ tonleiter	dw 262 ; c4   0
 		dw 880 ; a5   21
 		dw 932 ; a#5  22
 		dw 987 ; b5   23
+
+
+song_data	db 0	; song data goes here
 
