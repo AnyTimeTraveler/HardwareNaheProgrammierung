@@ -12,8 +12,12 @@ status		db 00000000b	; Statusbyte
 ;		   ||||| +---------> Tonfolge (1, an) / (0, aus)
 ;		   +++++-----------> Aktuelle note (0-23 =>c4-b5)
 
-next_action     dw main
-last_input      db 0
+last_input      db 0            ; Last keyboad input
+play_note       db 0            ; 1 if note should be played, 0 otherwise
+speaker_swing   db 0            ; speaker swing 'direction'
+
+sequence_fire   db 0            ; 1 if tonfolge should advance
+speaker_fire    db 0            ; 1 if speaker should swing
 
 
 ; Konstanten
@@ -53,7 +57,7 @@ tcticks		equ 1843	; 1843200 Hz / ????? = 1000 Hz => 1 ms
 				; Zeitkonstante fuer Sequencer-ISR
 
 
-tcfreq          equ 0           ; not needed for now (tonfolge)
+tcfreq          equ 18430           ; not needed for now (tonfolge)
 
 start:
 
@@ -67,33 +71,75 @@ start:
 	mov al, 0
 	out ppi_a, al
 	out leds, al
+
+	; 0119
+	mov cx, 23
+	
+divide:	mov bx, cx
+	add bx, cx
+	mov word ax, [tonleiter+bx] ; for division
+        mov bx, ax
+	add bx, ax
+	
+	; divide to get scaler
+        ; DX:AX = 1843200
+        mov dx, 28
+        mov ax, 8192
+        div bx
+	mov bx, cx
+	add bx, cx
+        mov [tonleiter+bx], ax
+	loop divide
+
+        mov bx, tcticks
+        call pit1setscaler
+
+
         
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
-; Hier sollten Ausgaben auf das Display getätigt werden, Zählung der Teile, etc.
+; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
+	; B011F
 main:
+	; check for speaker swing interrupt
+	mov byte al, [speaker_fire]
+	cmp al, 0
+	je main_a
+	call swing
+	mov byte [speaker_fire], 0
+
+main_a: ; check for sequence interrupt
+	mov byte al, [sequence_fire]
+	cmp al, 0
+	je main_b
+	call advance_sequence
+	mov byte [sequence_fire], 0
+	
+main_b:	; check for button press
         jmp check_button
 
 check_button:
-        xor dx, dx
-        mov dl, 0x80
-        in al, dx
+        in al, keybd
         
-        mov cl, [last_input]    ; check if equal to last round
+        mov byte cl, [last_input]    ; check if equal to last round
         cmp al, cl
         je main
-        mov [last_input], al
+        mov byte [last_input], al
 
-        mov ah, al
+        mov byte ah, al
         and al, 7
         cmp al, 7               ; 0b00000111
         jne calc_button         ; if no button pressed
+	
+	mov byte [play_note], 0
         call clear_screen
         jmp main
 
 calc_button:
         times 3 shr ah, 1       ; ah=column and index for xlat
 
+	; display row and column
+	mov dx, 0
         push ax
         mov bl, al
         mov ah, 4
@@ -114,20 +160,31 @@ shift_loop:
         jmp shift_loop
 
 found_row:
+	; AH contains table index now
         mov bl, ah
         xor bh, bh
         mov dl, 1
         mov ah, 4
         int 6
-        
-        mov word ax, [tonleiter+bx]
+	; BL contains table index now
+	
+	xor bh, bh
+	add bl, bl
+        mov word ax, [tonleiter+bx] ; for division
         mov bx, ax
-       
+	add bx, ax
+	
+	; divide to get scaler
+        ; DX:AX = 1843200
+        mov dx, 28
+        mov ax, 8192
+        div bx
+        mov bx, ax
+	
+	call pit1setscaler
 
-        ; TODO: Calculate scaler properly
-        ; bx = 1843200 / (f * 2)
-        call pit1setscaler
-
+	; enable sound
+	mov byte [play_note], 1
         jmp main
 
 
@@ -140,10 +197,29 @@ clear_screen:
         ret
 
 
+swing:
+	mov al, [play_note]
+        cmp al, 0
+        je swing_ret		; jump to end if play_note is 0
+
+        mov al, [speaker_swing]
+        xor al, ppi_pa3
+        mov [speaker_swing], al
+        out ppi_a, al
+
+
+swing_ret:
+	ret
+
+
+advance_sequence:
+	ret
+
+
 ; setPit1 
-; setzt Zeitkosntante f�r PIT1
-; Parameter: BX => neuer scaler für kanal 1
-; Zerst�rt al und bl
+; setzt Zeitkosntante für PIT1
+; Parameter: BX => neuer scaler fuer kanal 1
+; Zerstört al und bl
 pit1setscaler: 
 	mov al, 0b01110110	; Kanal 1, Mode 3, 16-Bit ZK
 	out pitc, al		; Steuerkanal
@@ -216,6 +292,7 @@ init:
 
 isr_sequencer: ; Timer fuer abspielen der Tonfolge
 	push ax
+	mov byte [sequence_fire], 1
 
 isr_sequencer_out: ; Ausgang aus dem Service
 	mov al, eoi		; EOI an PIC
@@ -224,10 +301,10 @@ isr_sequencer_out: ; Ausgang aus dem Service
 	iret
 
 	
+
 isr_freqtimer: ; Timer fuer lautsprecher
 	push ax
-
-        
+	mov byte [speaker_fire], 1
 
 isr_freqtimer_out: ; Ausgang aus dem Service
 	mov al, eoi		; EOI an PIC
@@ -239,7 +316,7 @@ isr_freqtimer_out: ; Ausgang aus dem Service
 ;Frequenzen in zwei oktaven von c4 bis b5 in Hertz (Hz)
 tonleiter	dw 262 ; c4   0
 		dw 277 ; c#4  1
-		dw 294 ; d4   2 
+		dw 294 ; d4   2
 		dw 311 ; d#4  3
 		dw 329 ; e4   4
 		dw 349 ; f4   5
@@ -250,15 +327,15 @@ tonleiter	dw 262 ; c4   0
 		dw 466 ; a#4  10
 		dw 493 ; b4   11
 		dw 523 ; c5   12
-		dw 554 ; c#5  13 
+		dw 554 ; c#5  13
 		dw 572 ; d5   14
 		dw 622 ; d#5  15
 		dw 659 ; e5   16
-		dw 698 ; f5   17 
+		dw 698 ; f5   17
 		dw 740 ; f#5  18
 		dw 784 ; g5   19
 		dw 830 ; g#5  20
 		dw 880 ; a5   21
-		dw 932 ; a#5  22 
+		dw 932 ; a#5  22
 		dw 987 ; b5   23
 
