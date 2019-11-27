@@ -102,7 +102,7 @@ main_b:		; update switch states
 		; check for button press
 		jmp check_button
 
-
+; reads switches, sets play_mode and record_mode accordingly
 check_switches:
 		mov byte [record_mode], 0
 		mov byte [play_mode], 0
@@ -116,6 +116,7 @@ check_a:	shr al, 1
 		ret
 
 
+; reads is button was pressed, updates display,
 check_button:
 		in al, keybd
 
@@ -126,12 +127,12 @@ check_button:
 
 		mov byte ah, al
 		and al, 7
-		cmp al, 7			; 0b00000111
-		jne calc_button			; if no button pressed
+		cmp al, 7			; 0bxxxxx111 means no button pressed
+		jne calc_button
 
 		mov byte [play_note], 0
 		call clear_screen
-		mov ax, 0			; mark for the recorder that there is no sound now
+		mov word ax, 0			; mark for the recorder that there is no sound now
 		jmp record_note
 
 calc_button:
@@ -173,8 +174,8 @@ found_row:	; AH contains table index now
 		mov word bx, ax
 
 		; display frequency
-		mov ah, 3
-		mov dl, 4
+		mov byte ah, 3
+		mov byte dl, 4
 		int 6
 
 		; divide to get scaler
@@ -192,25 +193,25 @@ found_row:	; AH contains table index now
 
 
 record_note:	; check if it's being recorded
-		mov al, [record_mode]
+		mov byte al, [record_mode]
 		cmp al, 0
 		je main
-		mov dx, [data_index]
+		mov word dx, [data_index]
 
 		; write note to ram
-		mov [dx], ax
+		mov word [dx], ax
 		times 2 inc dx
-		mov ax, [note_time]
-		mov [dx], ax
+		mov word ax, [note_time]
+		mov word [dx], ax
 		times 2 inc dx
 
 		; make the buffer wrap around
-		mov ax, [data_end]
+		mov word ax, [data_end]
 		cmp dx, ax
 		jl record_note_a
-		mov dx, [data_start]
+		mov word dx, [data_start]
 
-record_note_a:	mov [data_index], dx		; store new index
+record_note_a:	mov word [data_index], dx	; store new index
 		jmp main
 
 
@@ -229,7 +230,7 @@ move_speaker:
 
 		mov byte al, [speaker_swing]
 		xor al, ppi_pa3
-		mov [speaker_swing], al
+		mov byte [speaker_swing], al
 		out ppi_a, al
 return:		ret
 
@@ -239,9 +240,9 @@ advance_sequence:
 		cmp al, 0
 		je advance_sequence_play_mode
 		; increment the time the note has been played
-		mov ax, [note_time]
+		mov word ax, [note_time]
 		inc ax
-		mov [note_time], ax
+		mov word [note_time], ax
 		ret
 
 advance_sequence_play_mode:
@@ -250,35 +251,35 @@ advance_sequence_play_mode:
 		jne advance_ret
 
 		; increment the time the note has been played
-		mov ax, [note_time]
+		mov word ax, [note_time]
 		inc ax
-		mov [note_time], ax
+		mov word [note_time], ax
 
 		; check if note needs to end
-		mov bx, [note_length]
+		mov word bx, [note_length]
 		cmp ax, bx
 		jl return
 
 		; load new note
-		mov dx, [data_index]
+		mov word dx, [data_index]
 
 		; write note to ram
 		; read note
-		mov bx, [dx]
+		mov word bx, [dx]
 		call pit1setscaler
 		times 2 inc dx
 		; read time
-		mov ax, [dx]
-		mov [note_time], 0
-		mov [note_length], ax
+		mov word ax, [dx]
+		mov word [note_time], 0
+		mov word [note_length], ax
 		times 2 inc dx
 
 		; make the buffer wrap around
-		mov ax, [data_end]
+		mov word ax, [data_end]
 		cmp dx, ax
 		jl record_note_a
-		mov dx, [data_start]
-		mov [data_index], dx
+		mov word dx, [data_start]
+		mov word [data_index], dx
 
 
 divide_tonleiter:
@@ -296,7 +297,7 @@ divide:		mov word bx, cx			; double, since we jump words
 		div bx
 		mov word bx, cx
 		add bx, cx
-		mov [tonleiter+bx], ax
+		mov word [tonleiter+bx], ax
 		loop divide
 
 ; setPit1
@@ -363,11 +364,11 @@ init:
 
 		mov word [intab0], isr_freqtimer; Interrupttabelle (Timer K1)
 						; initialisieren (Offset)
-		mov [intab0 + 2], cs		; (Segmentadresse)
+		mov word [intab0 + 2], cs	; (Segmentadresse)
 
 		mov word [intab1], isr_sequencer; Interrupttabelle (Timer K2)
 						; initialisieren (Offset)
-		mov [intab1 + 2], cs		; (Segmentadresse)
+		mov word [intab1 + 2], cs	; (Segmentadresse)
 
 		sti				; ab jetzt Interrupts
 		ret
