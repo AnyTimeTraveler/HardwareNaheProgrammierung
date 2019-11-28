@@ -22,7 +22,7 @@ play_mode	db 0				; 1 if in play mode, 0 otherwise
 
 data_start	equ song_data			; index of currently played byte
 data_index	dw song_data			; index of currently played byte
-data_end	equ song_data+1024		; length of data area
+data_end	equ song_data+256		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
@@ -71,10 +71,8 @@ start:
 		call init			; Controller und Interruptsystem scharfmachen
 		call clear_screen
 
-		mov byte [status], 20h		; Init. Statusbyte und alle LEDs
-		mov byte al, 0
-		out ppi_a, al
-		out leds, al
+                mov ax, advance_sequence
+                mov ax, record_note
 
 ;		call divide_tonleiter
 
@@ -86,19 +84,19 @@ main:
 		; check for speaker move interrupt
 		mov byte al, [speaker_fire]
 		cmp al, 0
-		je main_a
+		je .a
 		call move_speaker
 		mov byte [speaker_fire], 0
 
-main_a:		; check for sequence interrupt
+.a:		; check for sequence interrupt
 		mov byte al, [sequence_fire]
 		cmp al, 0
-		je main_b
+		je .b
 		call advance_sequence
 		mov byte [sequence_fire], 0
 
-main_b:		; update switch states
-		call read_switches
+.b:		; update switch states
+		call check_switches
 		; check for button press
 		jmp check_button
 
@@ -108,11 +106,13 @@ check_switches:
 		mov byte [play_mode], 0
 		in al, schalter
 		shr al, 1
-		jnc check_a
+		jnc .a
 		mov byte [record_mode], 1
-check_a:	shr al, 1
-		jnc return
+.a:     	shr al, 1
+		jnc .b
 		mov byte [play_mode], 1
+.b:             shr al, 1
+		jnc return
 		ret
 
 
@@ -122,37 +122,26 @@ check_button:
 
 		mov byte cl, [last_input]	; check if equal to last round
 		cmp al, cl
+                ; leave if it's the exact same keycode
 		je main
-		mov byte [last_input], al
 
 		mov byte ah, al
 		and al, 7
 		cmp al, 7			; 0bxxxxx111 means no button pressed
 		jne calc_button
+                
+                cmp cl, 0                       ; check if last round there was also no button press
+                je main
+                mov word [last_input], 0
 
 		mov byte [play_note], 0
 		call clear_screen
 		mov word ax, 0			; mark for the recorder that there is no sound now
 		jmp record_note
 
-calc_button:
+calc_button:    ; remember the last input
+		mov byte [last_input], ah
 		times 3 shr ah, 1		; ah=column and index for xlat
-
-		jmp shift_loop
-		; display row and column
-		mov word dx, 0
-		push ax
-		mov byte bl, al
-		mov byte ah, 4
-		mov byte dl, 7
-		int 6
-		pop ax
-		push ax
-		mov byte bl, ah
-		mov byte ah, 4
-		mov byte dl, 4
-		int 6
-		pop ax
 
 shift_loop:	shr al, 1
 		jnc found_row
@@ -160,22 +149,16 @@ shift_loop:	shr al, 1
 		jmp shift_loop
 
 found_row:	; AH contains table index now
-		mov byte bl, ah
-		xor bh, bh
-		mov byte dl, 1
-		mov byte ah, 4
-		int 6
-		; BL contains table index now
-
 		; get tonleiter value calculate scaler
+		mov byte bl, ah
+		add bl, ah
 		xor bh, bh
-		add bl, bl
-		mov word ax, [tonleiter+bx]
+                mov word ax, [tonleiter+bx]
 		mov word bx, ax
 
 		; display frequency
 		mov byte ah, 3
-		mov byte dl, 4
+		mov byte dl, 3
 		int 6
 
 		; divide to get scaler
@@ -192,26 +175,38 @@ found_row:	; AH contains table index now
 		mov byte [play_note], 1
 
 
-record_note:	; check if it's being recorded
-		mov byte al, [record_mode]
-		cmp al, 0
+record_note:	; AX contains current note
+
+                ; check if it's being recorded
+		mov byte cl, [record_mode]
+		cmp cl, 0
 		je main
-		mov word dx, [data_index]
+		
+                ; load address to write to
+                mov word bx, [data_index]
+
+                call show_note
+
+                cmp ax, 0
+                je .time
 
 		; write note to ram
-		mov word [dx], ax
-		times 2 inc dx
-		mov word ax, [note_time]
-		mov word [dx], ax
-		times 2 inc dx
+		mov word [bx], ax
+		times 2 inc bx
+                jmp .wrap
+
+                ; write note time to ram
+.time:		mov word ax, [note_time]
+		mov word [bx], ax
+		times 2 inc bx
 
 		; make the buffer wrap around
-		mov word ax, [data_end]
-		cmp dx, ax
-		jl record_note_a
-		mov word dx, [data_start]
+.wrap:		mov word ax, data_end
+		cmp bx, ax
+		jl .a
+		mov word bx, data_start
 
-record_note_a:	mov word [data_index], dx	; store new index
+.a:     	mov word [data_index], bx	; store new index
 		jmp main
 
 
@@ -235,25 +230,28 @@ move_speaker:
 return:		ret
 
 
-advance_sequence:
-		mov byte al, [record_mode]
-		cmp al, 0
-		je advance_sequence_play_mode
-		; increment the time the note has been played
-		mov word ax, [note_time]
+; increment the time the note has been played
+; stores note in ax
+inc_and_get_note_time:
+                mov word ax, [note_time]
 		inc ax
 		mov word [note_time], ax
 		ret
 
-advance_sequence_play_mode:
+
+advance_sequence:
+		mov byte al, [record_mode]
+		cmp al, 0
+		je .play_mode
+                call inc_and_get_note_time
+		ret
+
+.play_mode:
 		mov byte al, [play_mode]
 		cmp al, 0
-		jne advance_ret
+		je return 
 
-		; increment the time the note has been played
-		mov word ax, [note_time]
-		inc ax
-		mov word [note_time], ax
+                call inc_and_get_note_time
 
 		; check if note needs to end
 		mov word bx, [note_length]
@@ -261,25 +259,57 @@ advance_sequence_play_mode:
 		jl return
 
 		; load new note
-		mov word dx, [data_index]
+		mov word bx, [data_index]
 
+                call show_note
 		; write note to ram
 		; read note
-		mov word bx, [dx]
+		mov word ax, [bx]
+		times 2 inc bx
+
+                ; check if note is silence
+                cmp ax, 0
+                jne .enable
+                ; set scaler high and disable play note
+                mov word [play_note], 0
+                mov word ax, tcfreq
+                jmp .set_scale
+.enable:        mov word [play_note], 1
+
+                ; set frequency
+.set_scale:     xchg bx, ax
 		call pit1setscaler
-		times 2 inc dx
-		; read time
-		mov word ax, [dx]
-		mov word [note_time], 0
+                xchg bx, ax
+
+		; read length of note
+		mov word ax, [bx]
+		times 2 inc bx
+		
+                mov word [note_time], 0
 		mov word [note_length], ax
-		times 2 inc dx
 
 		; make the buffer wrap around
-		mov word ax, [data_end]
-		cmp dx, ax
-		jl record_note_a
-		mov word dx, [data_start]
-		mov word [data_index], dx
+		mov word [data_index], bx
+		cmp bx, data_end
+		jl return
+		mov word [data_index], data_start
+                ret
+
+; displays note index coming from bx
+show_note:      
+                push ax
+                push bx
+                push dx
+
+                sub bx, data_start
+                mov byte dl, 7
+                mov byte ah, 3
+                int 6
+
+                pop ax
+                pop bx
+                pop dx
+                ret
 
 
 divide_tonleiter:
@@ -371,6 +401,12 @@ init:
 		mov word [intab1 + 2], cs	; (Segmentadresse)
 
 		sti				; ab jetzt Interrupts
+                
+                mov byte [status], 20h		; Init. Statusbyte und alle LEDs
+		mov byte al, 0
+		out ppi_a, al
+		out leds, al
+
 		ret
 
 ;------------------------ Serviceroutinen -----------------------------------
@@ -379,7 +415,7 @@ isr_sequencer:					; Timer fuer abspielen der Tonfolge
 		push ax
 		mov byte [sequence_fire], 1
 
-isr_sequencer_out:				; Ausgang aus dem Service
+.out:           				; Ausgang aus dem Service
 		mov byte al, eoi		; EOI an PIC
 		out ocw_2_3, al
 		pop ax
@@ -390,12 +426,13 @@ isr_freqtimer:					; Timer fuer lautsprecher
 		push ax
 		mov byte [speaker_fire], 1
 
-isr_freqtimer_out:				; Ausgang aus dem Service
+.out:           				; Ausgang aus dem Service
 		mov byte al, eoi		; EOI an PIC
 		out ocw_2_3, al
 		pop ax
 		iret
 
+section .data
 
 ;Frequenzen in zwei Oktaven von c4 bis b5 in Hertz (Hz)
 tonleiter	dw 262 ; c4   0
@@ -429,7 +466,14 @@ tonleiter	dw 262 ; c4   0
 ;	dw	0; duration
 ;	dw	0; scaler
 ;
-song_data	resw 1024
+song_data	dw 10000, 3517
+        	dw 10000, 0
+                dw 1000, 2220
+                dw 1000, 0
+                dw 10000, 2220
+                dw 10000, 0
+                times 116 dw 0
+;song_data	resw 128
 
 ; incbin "music.bin"
 
