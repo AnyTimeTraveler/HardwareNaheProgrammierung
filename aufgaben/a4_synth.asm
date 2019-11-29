@@ -4,19 +4,11 @@
 		jmp start
 
 ; Variablen
-status		db 00000000b			; Statusbyte
-;		   xxxxx xx
-;		   ||||| ||
-;		   ||||| |+-------------------> Ton (1, an) / (0, aus)
-;		   ||||| +--------------------> Tonfolge (1, an) / (0, aus)
-;		   +++++----------------------> Aktuelle note (0-23 =>c4-b5)
-
 last_input	db 0				; Last keyboad input
 play_note	db 0				; 1 if note should be played, 0 otherwise
 speaker_swing	db 0				; speaker swing 'direction', 8 or 0
 
 sequence_fire	db 0				; 1 if tonfolge should advance, 0 otherwise
-speaker_fire	db 0				; 1 if speaker should swing, 0 otherwise
 record_mode	db 0				; 1 if in record mode, 0 otherwise
 play_mode	db 0				; 1 if in play mode, 0 otherwise
 
@@ -28,6 +20,7 @@ note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
 
 ; Konstanten
+int0            equ 0                           ; Addresse des Divisionsueberlaufs
 intab0		equ 20h				; Adresse Interrupttabelle PIT, Kanal 1
 intab1		equ intab0 + 1 * 4		; Adresse Interrupttabelle PIT, Kanal 2
 intab7		equ intab0 + 7 * 4		; Adresse Interrupttabelle Lichttaster
@@ -73,22 +66,39 @@ start:
 
                 mov ax, advance_sequence
                 mov ax, record_note
-
-;		call divide_tonleiter
+                
+                jmp main
 
 
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
-main:
-		; check for speaker move interrupt
-		mov byte al, [speaker_fire]
-		cmp al, 0
-		je .a
-		call move_speaker
-		mov byte [speaker_fire], 0
+debug:
+                push ax
+                mov byte al, [speaker_swing]
+                shl al, 1
+                mov byte ah, [play_note]
+                or al, ah
+                shl al, 1
+                mov byte ah, [sequence_fire]
+                or al, ah
+                shl al, 1
+                shl al, 1
+                shl al, 1
+                mov byte ah, [record_mode]
+                or al, ah
+                shl al, 1
+                mov byte ah, [play_mode]
+                or al, ah
+                
+                out leds, al
+                pop ax
+                ret
 
-.a:		; check for sequence interrupt
+
+main:
+                call debug
+		; check for sequence interrupt
 		mov byte al, [sequence_fire]
 		cmp al, 0
 		je .b
@@ -107,14 +117,20 @@ check_switches:
 		in al, schalter
 		shr al, 1
 		jnc .a
-		mov byte [record_mode], 1
+		mov byte [play_mode], 1
 .a:     	shr al, 1
 		jnc .b
-		mov byte [play_mode], 1
-.b:             shr al, 1
-		jnc return
+		mov byte [record_mode], 1
+.b:             times 6 shr al, 1
+                jnc return
+                ; call this function to trigger a breakpoint within your function
+break_func:     xchg bx, bx
 		ret
 
+;               Dangling breakpoint instruchtion
+;               Used for jumping to, when call is not possible
+break:          xchg bx, bx
+                jmp main
 
 ; reads is button was pressed, updates display,
 check_button:
@@ -162,7 +178,7 @@ found_row:	; AH contains table index now
 		int 6
 
 		; divide to get scaler
-		add bx, ax			; double to match freq / (f * 2) equasion
+		add bx, bx			; double to match freq / (f * 2) equasion
 		; DX:AX = 1843200
 		mov word dx, 28
 		mov word ax, 8192
@@ -173,6 +189,8 @@ found_row:	; AH contains table index now
 
 		; enable sound
 		mov byte [play_note], 1
+
+                mov ax, bx
 
 
 record_note:	; AX contains current note
@@ -216,18 +234,6 @@ clear_screen:
 		int conout
 		pop ax
 		ret
-
-
-move_speaker:
-		mov byte al, [play_note]
-		cmp al, 0
-		je return			; jump to end if play_note is 0
-
-		mov byte al, [speaker_swing]
-		xor al, ppi_pa3
-		mov byte [speaker_swing], al
-		out ppi_a, al
-return:		ret
 
 
 ; increment the time the note has been played
@@ -293,7 +299,7 @@ advance_sequence:
 		cmp bx, data_end
 		jl return
 		mov word [data_index], data_start
-                ret
+return:         ret
 
 ; displays note index coming from bx
 show_note:      
@@ -310,25 +316,6 @@ show_note:
                 pop bx
                 pop dx
                 ret
-
-
-divide_tonleiter:
-		mov word cx, 23			; for length of tonleiter
-divide:		mov word bx, cx			; double, since we jump words
-		add bx, cx
-		mov word ax, [tonleiter+bx]	; read value
-		mov word bx, ax
-		add bx, ax
-
-		; divide to get scaler
-		; DX:AX = 1843200
-		mov word dx, 28
-		mov word ax, 8192
-		div bx
-		mov word bx, cx
-		add bx, cx
-		mov word [tonleiter+bx], ax
-		loop divide
 
 ; setPit1
 ; setzt Zeitkosntante für PIT1
@@ -392,6 +379,10 @@ init:
 
 ; Interrupttabelle init.
 
+		mov word [intab0], break        ; Interrupttabelle (Divisionsueberlauf)
+						; initialisieren (Offset)
+		mov word [intab0 + 2], cs	; (Segmentadresse)
+
 		mov word [intab0], isr_freqtimer; Interrupttabelle (Timer K1)
 						; initialisieren (Offset)
 		mov word [intab0 + 2], cs	; (Segmentadresse)
@@ -402,10 +393,8 @@ init:
 
 		sti				; ab jetzt Interrupts
                 
-                mov byte [status], 20h		; Init. Statusbyte und alle LEDs
 		mov byte al, 0
 		out ppi_a, al
-		out leds, al
 
 		ret
 
@@ -424,7 +413,15 @@ isr_sequencer:					; Timer fuer abspielen der Tonfolge
 
 isr_freqtimer:					; Timer fuer lautsprecher
 		push ax
-		mov byte [speaker_fire], 1
+		mov byte al, [play_note]
+		cmp al, 0
+		je .out 			; jump to end if play_note is 0
+
+                ; get swing half
+		mov byte al, [speaker_swing]
+		xor al, ppi_pa3
+		mov byte [speaker_swing], al
+		out ppi_a, al
 
 .out:           				; Ausgang aus dem Service
 		mov byte al, eoi		; EOI an PIC
@@ -466,12 +463,12 @@ tonleiter	dw 262 ; c4   0
 ;	dw	0; duration
 ;	dw	0; scaler
 ;
-song_data	dw 10000, 3517
-        	dw 10000, 0
+song_data	dw 1000, 3517
+        	dw 1000, 0
                 dw 1000, 2220
                 dw 1000, 0
-                dw 10000, 2220
-                dw 10000, 0
+                dw 1000, 2220
+                dw 1000, 0
                 times 116 dw 0
 ;song_data	resw 128
 
