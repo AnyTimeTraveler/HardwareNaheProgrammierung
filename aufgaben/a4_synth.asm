@@ -358,11 +358,9 @@ display_bx_right:
 
 display_bx_at_dl:
                 push ax
-                push bx
                 mov byte ah, 3
                 int 6
                 pop ax
-                pop dx
                 ret
 
 ; setPit1
