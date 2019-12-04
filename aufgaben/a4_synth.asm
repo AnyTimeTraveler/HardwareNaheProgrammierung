@@ -20,14 +20,13 @@ settings        db 0                            ; Reads input from humans
 reset_counter   equ 4				; 
 display_mode	equ 8                           ; 
 memview_mode	equ 16				; 
-;nothing	equ 32                          ; 
+mem_clear	equ 32                          ; 
 ;nothing	equ 64                          ; 
 breakpoint	equ 128                         ; 
 
 
-data_start	equ song_data			; index of currently played byte
-data_index	dw song_data			; index of currently played byte
-data_end	equ song_data+256		; length of data area
+data_index	dw 0		        	; index of currently played index
+data_size	equ 128          		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
@@ -77,18 +76,22 @@ tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 ; arg1: bit
 ; Destroys al
 %macro setStatusBit 1
+  push ax
   mov byte al, [status]
   or al, %1
   mov byte [status], al
+  pop ax
 %endmacro
 
 ; Clears a status bit.
 ; arg1: bit
 ; Destroys al
 %macro clearStatusBit 1
+  push ax
   mov byte al, [status]
   and al, ~%1
   mov byte [status], al
+  pop ax
 %endmacro
 
 ; Jumps to label if bit is not set.
@@ -98,6 +101,18 @@ tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 %macro checkStatusBit 2
   push ax
   mov byte al, [status]
+  test al, %1
+  pop ax
+  jz %2
+%endmacro
+
+; Jumps to label if bit is not set.
+; arg1: bit
+; arg2: label
+; Destroys al
+%macro checkSetting 2
+  push ax
+  mov byte al, [settings]
   test al, %1
   pop ax
   jz %2
@@ -121,6 +136,7 @@ start:
 		call init			; Controller und Interruptsystem scharfmachen
 		call clear_screen
 
+                mov word ax, check_switches
                 mov word dx, break_func
                 jmp main
 
@@ -129,19 +145,23 @@ start:
 ; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
 main:
+                ; update switch states
+		call check_switches
+                checkSetting memview_mode,.a
+                jmp memview
+ 
+.a:             ; show status
                 mov byte al, [status]
                 mov byte ah, [speaker_swing]
                 or al, ah
                 out leds, al
-
+               
 		; check for sequence interrupt
                 checkStatusBit sequence_fire,.b
 		call advance_sequence
                 clearStatusBit sequence_fire
 
-.b:		; update switch states
-		call check_switches
-		; check for button press
+.b:		; check for button press
 		jmp check_button
 
 ; reads switches, sets play_mode and record_mode accordingly
@@ -159,11 +179,19 @@ check_switches:
 
                 ; reset data index and play_note
                 mov byte al, ah
-                checkStatusBit reset_counter,.a
-                mov word [data_index], data_start
+                checkSetting reset_counter,.a
+                mov word [data_index], 0
                 clearStatusBit play_note
-.a:             
-                checkStatusBit breakpoint,return
+.a:             checkSetting mem_clear,.b
+                mov word cx, data_size
+.loop:          mov word bx, cx
+                add bx, cx
+                mov word [song_notes+bx], 0
+                mov word [song_times+bx], 0
+                loop .loop
+                mov word [song_notes], 0
+                mov word [song_times], 0
+.b:             checkSetting breakpoint,return
 break_func:     xchg bx, bx
         	ret
 
@@ -213,18 +241,25 @@ check_button:
 		xor bh, bh
                 mov word ax, [tonleiter+bx]
 		mov word bx, ax
+                mov word cx, ax
 
-		; display frequency
-                call display_bx_right
-
-		; divide to get scaler
+	        ; divide to get scaler
 		shl bx, 1			; double to match freq / (f * 2) equasion
 		; DX:AX = 1843200
 		mov word dx, 28
 		mov word ax, 8192
 		div bx
 
-		mov word bx, ax
+                ; display frequency
+                checkSetting display_mode,.freq
+                mov word bx, ax
+                call display_bx_right
+                jmp .done
+.freq:          mov word bx, cx
+                call display_bx_right
+
+                ; set scaler
+.done:		mov word bx, ax
 		call pit1setscaler
 
 		; enable sound
@@ -236,34 +271,38 @@ check_button:
 .record_note:	; AX contains current note
 
                 ; check if it's being recorded
-                checkStatusBit record_mode,main
+                checkSetting record_mode,main
 		
                 ; load address to write to
                 mov word bx, [data_index]
 
                 ; display position
-                sub bx, data_start
                 call display_bx_left
-                add bx, data_start
 
                 cmp ax, 0
                 je .time
 
+                ;record silence before note
+		mov word [song_notes+bx], 0
+		mov word cx, [note_time]
+                mov word [song_times+bx], cx
+                add bx, 2
+		mov word [note_time], 0
+
 		; write note to ram
-		mov word [bx], ax
-		times 2 inc bx
-                jmp .wrap
+		mov word [song_notes+bx], ax
+                jmp .end
 
                 ; write note time to ram
 .time:		mov word ax, [note_time]
-		mov word [bx], ax
-		times 2 inc bx
+                mov word [note_time], 0
+		mov word [song_times+bx], ax
+		add bx, 2
 
 		; make the buffer wrap around
-.wrap:		mov word ax, data_end
-		cmp bx, ax
+		cmp bx, data_size
 		jl .end
-		mov word bx, data_start
+		mov word bx, 0
 
 .end:     	mov word [data_index], bx	; store new index
 		jmp main
@@ -287,12 +326,12 @@ inc_and_get_note_time:
 
 
 advance_sequence:
-                checkStatusBit record_mode,.play_mode
+                checkSetting record_mode,.play_mode
                 call inc_and_get_note_time
 		ret
 
 .play_mode:
-		checkStatusBit play_mode,return
+		checkSetting play_mode,return
 
                 call inc_and_get_note_time
 
@@ -303,45 +342,47 @@ advance_sequence:
 
 		; load new note
 		mov word bx, [data_index]
-                
+ 
                 ; show index
-                sub bx, data_start
                 call display_bx_left
-                add bx, data_start
 
-		; write note to ram
 		; read note
-		mov word ax, [bx]
-		times 2 inc bx
+		mov word ax, [song_notes+bx]
 
                 ; check if note is silence
                 cmp ax, 0
                 jne .enable
                 ; set scaler high and disable play note
                 clearStatusBit play_note
-                mov word ax, tcfreq
-                jmp .set_scale
+                jmp .skip
 .enable:        setStatusBit play_note
 
                 ; set frequency
-.set_scale:     xchg bx, ax
+                xchg bx, ax
 		call pit1setscaler
                 call display_bx_right
                 ; restore address into bx
                 mov word bx, ax
 
 		; read length of note
-		mov word ax, [bx]
-		times 2 inc bx
-		
+.skip:		mov word ax, [song_times+bx]
+
+                checkSetting display_mode,.cont
+                ; show note length
+                xchg ax, bx
+                call display_bx_left
+                xchg ax, bx
+
+.cont:		; increment index
+                add bx, 2
                 mov word [note_time], 0
 		mov word [note_length], ax
 
 		; make the buffer wrap around
 		mov word [data_index], bx
-		cmp bx, data_end
+		cmp bx, data_size
 		jl return
-		mov word [data_index], data_start
+		mov word [data_index], 0
 return:         ret
 
 ; displays note index coming from bx
@@ -365,6 +406,41 @@ display_bx_at_dl:
                 int 6
                 pop ax
                 ret
+
+memview:
+                mov word bx, [data_index]
+                mov word cx, bx
+
+                mov byte al, bl
+                shr al, 1
+                out leds, al
+
+                mov word ax, [song_notes+bx]
+                xchg ax, bx
+                call display_bx_right
+                xchg ax, bx
+                
+                mov word ax, [song_times+bx]
+                xchg ax, bx
+                call display_bx_left
+
+                mov byte ah, 1
+                int 5
+                cmp al, 17h                     ; bottom left
+                jne .a
+                sub cx, 2
+.a:             cmp al, 00h
+                jne .b
+                add cx, 2
+.b:             
+                mov word [data_index], cx
+
+                jmp main
+
+
+
+
+
 
 ; setPit1
 ; setzt Zeitkosntante für PIT1
@@ -478,6 +554,7 @@ isr_freqtimer:					; Timer fuer lautsprecher
 		iret
 
 section .data
+align 16
 
 ;Frequenzen in zwei Oktaven von c4 bis b5 in Hertz (Hz)
 tonleiter	dw 262 ; c4   0
@@ -507,18 +584,8 @@ tonleiter	dw 262 ; c4   0
 
 ; song data is here
 ;
-; Format:
-;	dw	0; duration
-;	dw	0; scaler
-;
-song_data	dw 1000, 3517
-        	dw 1000, 0
-                dw 1000, 2220
-                dw 1000, 0
-                dw 1000, 2220
-                dw 1000, 0
-                times 116 dw 0
-;song_data	resw 128
+song_notes      times data_size*2 dw 0
+song_times      times data_size*2 dw 0
 
 ; incbin "music.bin"
 
