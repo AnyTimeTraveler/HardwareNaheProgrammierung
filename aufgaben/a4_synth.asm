@@ -4,12 +4,11 @@
 		jmp start
 
 ; Variablen
-last_input	db 0				; Last keyboad input
 status          db 0                            ; Displays the current status to humans
 play_mode	equ 1				; 1 if in play mode, 0 otherwise
 record_mode	equ 2				; 1 if in record mode, 0 otherwise
 ;nothing	equ 4				; 
-speaker_swing	equ 8                           ; 
+;speaker_swing	equ 8                           ; replaced by it's own value, because broken
 sequence_fire	equ 16				; 
 play_note	equ 32                          ; 
 ;nothing	equ 64                          ; 
@@ -32,6 +31,8 @@ data_end	equ song_data+256		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
+speaker_swing   db 0                            ; current direction the speaker is facing
+last_input	db 0				; Last keyboad input
 
 ; Konstanten
 int0            equ 0                           ; Addresse des Divisionsueberlaufs
@@ -129,6 +130,8 @@ start:
 
 main:
                 mov byte al, [status]
+                mov byte ah, [speaker_swing]
+                or al, ah
                 out leds, al
 
 		; check for sequence interrupt
@@ -212,7 +215,7 @@ check_button:
 		mov word bx, ax
 
 		; display frequency
-                call display_bx_left
+                call display_bx_right
 
 		; divide to get scaler
 		shl bx, 1			; double to match freq / (f * 2) equasion
@@ -240,7 +243,7 @@ check_button:
 
                 ; display position
                 sub bx, data_start
-                call display_bx_right
+                call display_bx_left
                 add bx, data_start
 
                 cmp ax, 0
@@ -463,11 +466,9 @@ isr_freqtimer:					; Timer fuer lautsprecher
                 checkStatusBit play_note,.out
 
                 ; flip swing value
-		mov byte al, [status]
+                mov byte al, [speaker_swing]
 		xor al, ppi_pa3
-		mov byte [status], al
-                ; isolate it
-                and al, ppi_pa3
+		mov byte [speaker_swing], al
 		out ppi_a, al
 
 .out:           				; Ausgang aus dem Service
