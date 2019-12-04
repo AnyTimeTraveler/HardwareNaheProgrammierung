@@ -5,12 +5,26 @@
 
 ; Variablen
 last_input	db 0				; Last keyboad input
-play_note	db 0				; 1 if note should be played, 0 otherwise
-speaker_swing	db 0				; speaker swing 'direction', 8 or 0
+status          db 0                            ; Displays the current status to humans
+play_mode	equ 1				; 1 if in play mode, 0 otherwise
+record_mode	equ 2				; 1 if in record mode, 0 otherwise
+;nothing	equ 4				; 
+speaker_swing	equ 8                           ; 
+sequence_fire	equ 16				; 
+play_note	equ 32                          ; 
+;nothing	equ 64                          ; 
+;nothing	equ 128                         ; 
 
-sequence_fire	db 0				; 1 if tonfolge should advance, 0 otherwise
-record_mode	db 0				; 1 if in record mode, 0 otherwise
-play_mode	db 0				; 1 if in play mode, 0 otherwise
+settings        db 0                            ; Reads input from humans
+;play_mode	equ 1				; 1 if in play mode, 0 otherwise
+;record_mode	equ 2				; 1 if in record mode, 0 otherwise
+reset_counter   equ 4				; 
+display_mode	equ 8                           ; 
+memview_mode	equ 16				; 
+;nothing	equ 32                          ; 
+;nothing	equ 64                          ; 
+breakpoint	equ 128                         ; 
+
 
 data_start	equ song_data			; index of currently played byte
 data_index	dw song_data			; index of currently played byte
@@ -34,7 +48,7 @@ conout		equ 6				; Console OUT
 pitc		equ 0a6h			; Steuerkanal PIT
 pit1		equ 0a2h			; Counter 1 PIT
 pit2		equ 0a4h			; Counter 2 PIT
-ppi_ctl		equ 0b6h			; Steuerkanal PPI (Parallelinterface)
+ppi_ctl	        equ 0b6h			; Steuerkanal PPI (Parallelinterface)
 ppi_a		equ 0b0h			; Kanal A PPI
 ppi_pa0		equ 1				; LED 0
 ppi_pa1		equ 2				; LED 1
@@ -57,6 +71,48 @@ tcticks		equ 1843			; 1843200 Hz / 1843 = 1000 Hz =>  1 ms
 						; Zeitkonstante fuer Sequencer-ISR
 tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 
+
+; Sets a status bit.
+; arg1: bit
+; Destroys al
+%macro setStatusBit 1
+  mov byte al, [status]
+  or al, %1
+  mov byte [status], al
+%endmacro
+
+; Clears a status bit.
+; arg1: bit
+; Destroys al
+%macro clearStatusBit 1
+  mov byte al, [status]
+  and al, ~%1
+  mov byte [status], al
+%endmacro
+
+; Jumps to label if bit is not set.
+; arg1: bit
+; arg2: label
+; Destroys al
+%macro checkStatusBit 2
+  push ax
+  mov byte al, [status]
+  test al, %1
+  pop ax
+  jz %2
+%endmacro
+
+; Jumps to label if bit in al is not set.
+; arg1: bit
+; arg2: label
+; Destroys al
+%macro checkBit 2
+  test al, %1
+  jz %2
+%endmacro
+
+
+
 start:
 
 ; Initialisierung
@@ -64,46 +120,21 @@ start:
 		call init			; Controller und Interruptsystem scharfmachen
 		call clear_screen
 
-                mov ax, advance_sequence
-                mov ax, record_note
-                
+                mov word dx, break_func
                 jmp main
 
 
 ; Hintergrundprogramm (ist immer aktiv, wenn im Service nichts zu tun ist)
 ; Hier sollten Ausgaben auf das Display getaetigt werden, Zaehlung der Teile, etc.
 
-debug:
-                push ax
-                mov byte al, [speaker_swing]
-                shl al, 1
-                mov byte ah, [play_note]
-                or al, ah
-                shl al, 1
-                mov byte ah, [sequence_fire]
-                or al, ah
-                shl al, 1
-                shl al, 1
-                shl al, 1
-                mov byte ah, [record_mode]
-                or al, ah
-                shl al, 1
-                mov byte ah, [play_mode]
-                or al, ah
-                
-                out leds, al
-                pop ax
-                ret
-
-
 main:
-                call debug
+                mov byte al, [status]
+                out leds, al
+
 		; check for sequence interrupt
-		mov byte al, [sequence_fire]
-		cmp al, 0
-		je .b
+                checkStatusBit sequence_fire,.b
 		call advance_sequence
-		mov byte [sequence_fire], 0
+                clearStatusBit sequence_fire
 
 .b:		; update switch states
 		call check_switches
@@ -112,25 +143,33 @@ main:
 
 ; reads switches, sets play_mode and record_mode accordingly
 check_switches:
-		mov byte [record_mode], 0
-		mov byte [play_mode], 0
 		in al, schalter
-		shr al, 1
-		jnc .a
-		mov byte [play_mode], 1
-.a:     	shr al, 1
-		jnc .b
-		mov byte [record_mode], 1
-.b:             times 6 shr al, 1
-                jnc return
-                ; call this function to trigger a breakpoint within your function
+                mov byte [settings], al
+
+                ; write play- and rec-mode to status
+                mov byte ah, al
+                and al, 3
+                mov byte bl, [status]
+                and bl, ~3
+                or bl, al
+                mov byte [status], bl
+
+                ; reset data index and play_note
+                mov byte al, ah
+                checkStatusBit reset_counter,.a
+                mov word [data_index], data_start
+                clearStatusBit play_note
+.a:             
+                checkStatusBit breakpoint,return
 break_func:     xchg bx, bx
-		ret
+        	ret
 
 ;               Dangling breakpoint instruchtion
 ;               Used for jumping to, when call is not possible
-break:          xchg bx, bx
+break_lbl:      call break_func
                 jmp main
+
+
 
 ; reads is button was pressed, updates display,
 check_button:
@@ -144,27 +183,27 @@ check_button:
 		mov byte ah, al
 		and al, 7
 		cmp al, 7			; 0bxxxxx111 means no button pressed
-		jne calc_button
+		jne .calc_button
                 
                 cmp cl, 0                       ; check if last round there was also no button press
                 je main
                 mov word [last_input], 0
 
-		mov byte [play_note], 0
+                clearStatusBit play_note
 		call clear_screen
 		mov word ax, 0			; mark for the recorder that there is no sound now
-		jmp record_note
+		jmp .record_note
 
-calc_button:    ; remember the last input
+.calc_button:    ; remember the last input
 		mov byte [last_input], ah
 		times 3 shr ah, 1		; ah=column and index for xlat
 
-shift_loop:	shr al, 1
-		jnc found_row
+.shift_loop:	shr al, 1
+		jnc .found_row
 		add ah, 8
-		jmp shift_loop
+		jmp .shift_loop
 
-found_row:	; AH contains table index now
+.found_row:	; AH contains table index now
 		; get tonleiter value calculate scaler
 		mov byte bl, ah
 		add bl, ah
@@ -173,12 +212,10 @@ found_row:	; AH contains table index now
 		mov word bx, ax
 
 		; display frequency
-		mov byte ah, 3
-		mov byte dl, 3
-		int 6
+                call display_bx_left
 
 		; divide to get scaler
-		add bx, bx			; double to match freq / (f * 2) equasion
+		shl bx, 1			; double to match freq / (f * 2) equasion
 		; DX:AX = 1843200
 		mov word dx, 28
 		mov word ax, 8192
@@ -188,22 +225,23 @@ found_row:	; AH contains table index now
 		call pit1setscaler
 
 		; enable sound
-		mov byte [play_note], 1
+                setStatusBit play_note
 
-                mov ax, bx
+                mov word ax, bx
 
 
-record_note:	; AX contains current note
+.record_note:	; AX contains current note
 
                 ; check if it's being recorded
-		mov byte cl, [record_mode]
-		cmp cl, 0
-		je main
+                checkStatusBit record_mode,main
 		
                 ; load address to write to
                 mov word bx, [data_index]
 
-                call show_note
+                ; display position
+                sub bx, data_start
+                call display_bx_right
+                add bx, data_start
 
                 cmp ax, 0
                 je .time
@@ -221,10 +259,10 @@ record_note:	; AX contains current note
 		; make the buffer wrap around
 .wrap:		mov word ax, data_end
 		cmp bx, ax
-		jl .a
+		jl .end
 		mov word bx, data_start
 
-.a:     	mov word [data_index], bx	; store new index
+.end:     	mov word [data_index], bx	; store new index
 		jmp main
 
 
@@ -246,16 +284,12 @@ inc_and_get_note_time:
 
 
 advance_sequence:
-		mov byte al, [record_mode]
-		cmp al, 0
-		je .play_mode
+                checkStatusBit record_mode,.play_mode
                 call inc_and_get_note_time
 		ret
 
 .play_mode:
-		mov byte al, [play_mode]
-		cmp al, 0
-		je return 
+		checkStatusBit play_mode,return
 
                 call inc_and_get_note_time
 
@@ -266,8 +300,12 @@ advance_sequence:
 
 		; load new note
 		mov word bx, [data_index]
+                
+                ; show index
+                sub bx, data_start
+                call display_bx_left
+                add bx, data_start
 
-                call show_note
 		; write note to ram
 		; read note
 		mov word ax, [bx]
@@ -277,15 +315,17 @@ advance_sequence:
                 cmp ax, 0
                 jne .enable
                 ; set scaler high and disable play note
-                mov word [play_note], 0
+                clearStatusBit play_note
                 mov word ax, tcfreq
                 jmp .set_scale
-.enable:        mov word [play_note], 1
+.enable:        setStatusBit play_note
 
                 ; set frequency
 .set_scale:     xchg bx, ax
 		call pit1setscaler
-                xchg bx, ax
+                call display_bx_right
+                ; restore address into bx
+                mov word bx, ax
 
 		; read length of note
 		mov word ax, [bx]
@@ -302,18 +342,26 @@ advance_sequence:
 return:         ret
 
 ; displays note index coming from bx
-show_note:      
+display_bx_left:
+                push dx
+                mov byte dl, 7
+                call display_bx_at_dl
+                pop dx
+                ret
+
+display_bx_right:
+                push dx
+                mov byte dl, 3
+                call display_bx_at_dl
+                pop dx
+                ret
+
+display_bx_at_dl:
                 push ax
                 push bx
-                push dx
-
-                sub bx, data_start
-                mov byte dl, 7
                 mov byte ah, 3
                 int 6
-
                 pop ax
-                pop bx
                 pop dx
                 ret
 
@@ -357,7 +405,7 @@ init:
 ; PPI-Init.
 		mov byte al, 10001011b		; PPI A/B/C Mode 0, A Output, sonst Input
 		out ppi_ctl, al
-		jmp short $+2			; I/O-Delay
+		jmp short $+2		        	; I/O-Delay
 		mov byte al, 0			; LED's aus (high aktiv)
 		out ppi_a, al
 
@@ -365,21 +413,21 @@ init:
 		mov byte al, 00010011b		; ICW1, ICW4 benoetigt, Bit 2 egal,
 						; Flankentriggerung
 		out icw_1, al
-		jmp short $+2			; I/O-Delay
+		jmp short $+2  			; I/O-Delay
 		mov byte al, 00001000b		; ICW2, auf INT 8 gemapped
 		out icw_2_4, al
-		jmp short $+2			; I/O-Delay
+		jmp short $+2			        ; I/O-Delay
 		mov byte al, 00010001b		; ICW4, MCS-86, EOI, non-buffered,
 						; fully nested
 		out icw_2_4, al
-		jmp short $+2			; I/O-Delay
+		jmp short $+2			        ; I/O-Delay
 		mov byte al, 01111100b		; Kanal 0, 1 + 7 am PIC demaskieren
 						; PIT K1, K2 und Lichttaster
 		out ocw_1, al
 
 ; Interrupttabelle init.
 
-		mov word [intab0], break        ; Interrupttabelle (Divisionsueberlauf)
+		mov word [intab0], break_lbl    ; Interrupttabelle (Divisionsueberlauf)
 						; initialisieren (Offset)
 		mov word [intab0 + 2], cs	; (Segmentadresse)
 
@@ -402,7 +450,7 @@ init:
 
 isr_sequencer:					; Timer fuer abspielen der Tonfolge
 		push ax
-		mov byte [sequence_fire], 1
+                setStatusBit sequence_fire
 
 .out:           				; Ausgang aus dem Service
 		mov byte al, eoi		; EOI an PIC
@@ -413,14 +461,15 @@ isr_sequencer:					; Timer fuer abspielen der Tonfolge
 
 isr_freqtimer:					; Timer fuer lautsprecher
 		push ax
-		mov byte al, [play_note]
-		cmp al, 0
-		je .out 			; jump to end if play_note is 0
+                ; jump to end if play_note is 0
+                checkStatusBit play_note,.out
 
-                ; get swing half
-		mov byte al, [speaker_swing]
+                ; flip swing value
+		mov byte al, [status]
 		xor al, ppi_pa3
-		mov byte [speaker_swing], al
+		mov byte [status], al
+                ; isolate it
+                and al, ppi_pa3
 		out ppi_a, al
 
 .out:           				; Ausgang aus dem Service
