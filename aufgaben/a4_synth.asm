@@ -11,8 +11,8 @@ record_mode	equ 2				; 1 if in record mode, 0 otherwise
 ;speaker_swing	equ 8                           ; replaced by it's own value, because broken
 sequence_fire	equ 16				; 
 play_note	equ 32                          ; 
-;nothing	equ 64                          ; 
-;nothing	equ 128                         ; 
+reset_done	equ 64                          ; 
+clear_done	equ 128                         ; 
 
 settings        db 0                            ; Reads input from humans
 ;play_mode	equ 1				; 1 if in play mode, 0 otherwise
@@ -30,7 +30,6 @@ data_size	equ 128          		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
-speaker_swing   db 0                            ; current direction the speaker is facing
 last_input	db 0				; Last keyboad input
 
 ; Konstanten
@@ -76,22 +75,14 @@ tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 ; arg1: bit
 ; Destroys al
 %macro setStatusBit 1
-  push ax
-  mov byte al, [status]
-  or al, %1
-  mov byte [status], al
-  pop ax
+  or byte [status], %1
 %endmacro
 
 ; Clears a status bit.
 ; arg1: bit
 ; Destroys al
 %macro clearStatusBit 1
-  push ax
-  mov byte al, [status]
-  and al, ~%1
-  mov byte [status], al
-  pop ax
+  and byte [status], ~%1
 %endmacro
 
 ; Jumps to label if bit is not set.
@@ -99,10 +90,7 @@ tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 ; arg2: label
 ; Destroys al
 %macro checkStatusBit 2
-  push ax
-  mov byte al, [status]
-  test al, %1
-  pop ax
+  test byte [status], %1
   jz %2
 %endmacro
 
@@ -111,10 +99,7 @@ tcfreq		equ 18432			; 1843200 Hz / 18432 = 100 Hz => 10 ms
 ; arg2: label
 ; Destroys al
 %macro checkSetting 2
-  push ax
-  mov byte al, [settings]
-  test al, %1
-  pop ax
+  test byte [settings], %1
   jz %2
 %endmacro
 
@@ -135,9 +120,6 @@ start:
 
 		call init			; Controller und Interruptsystem scharfmachen
 		call clear_screen
-
-                mov word ax, check_switches
-                mov word dx, break_func
                 jmp main
 
 
@@ -152,8 +134,6 @@ main:
  
 .a:             ; show status
                 mov byte al, [status]
-                mov byte ah, [speaker_swing]
-                or al, ah
                 out leds, al
                
 		; check for sequence interrupt
@@ -171,26 +151,30 @@ check_switches:
 
                 ; write play- and rec-mode to status
                 mov byte ah, al
-                and al, 3
-                mov byte bl, [status]
-                and bl, ~3
-                or bl, al
-                mov byte [status], bl
+                and ah, 3
+                and byte [status], ~3
+                or byte [status], ah
 
                 ; reset data index and play_note
-                mov byte al, ah
+                clearStatusBit reset_done
                 checkSetting reset_counter,.a
                 mov word [data_index], 0
+                setStatusBit reset_done
                 clearStatusBit play_note
-.a:             checkSetting mem_clear,.b
+                
+                ; clear memory
+.a:             clearStatusBit clear_done
+                checkSetting mem_clear,.b
                 mov word cx, data_size
 .loop:          mov word bx, cx
-                add bx, cx
+                shl bx, 1
                 mov word [song_notes+bx], 0
                 mov word [song_times+bx], 0
                 loop .loop
+
                 mov word [song_notes], 0
                 mov word [song_times], 0
+                setStatusBit clear_done
 .b:             checkSetting breakpoint,return
 break_func:     xchg bx, bx
         	ret
@@ -206,17 +190,15 @@ break_lbl:      call break_func
 check_button:
 		in al, keybd
 
-		mov byte cl, [last_input]	; check if equal to last round
-		cmp al, cl
-                ; leave if it's the exact same keycode
-		je main
+		cmp al, [last_input]            ; check if equal to last round
+		je main                         ; leave if it's the exact same keycode
 
 		mov byte ah, al
 		and al, 7
 		cmp al, 7			; 0bxxxxx111 means no button pressed
 		jne .calc_button
                 
-                cmp cl, 0                       ; check if last round there was also no button press
+                cmp byte [last_input], 0                       ; check if last round there was also no button press
                 je main
                 mov word [last_input], 0
 
@@ -237,7 +219,7 @@ check_button:
 .found_row:	; AH contains table index now
 		; get tonleiter value calculate scaler
 		mov byte bl, ah
-		add bl, ah
+		shl bl, 1
 		xor bh, bh
                 mov word ax, [tonleiter+bx]
 		mov word bx, ax
@@ -246,8 +228,8 @@ check_button:
 	        ; divide to get scaler
 		shl bx, 1			; double to match freq / (f * 2) equasion
 		; DX:AX = 1843200
-		mov word dx, 28
-		mov word ax, 8192
+		mov word dx, 001ch
+		mov word ax, 2000h
 		div bx
 
                 ; display frequency
@@ -316,28 +298,20 @@ clear_screen:
 		ret
 
 
-; increment the time the note has been played
-; stores note in ax
-inc_and_get_note_time:
-                mov word ax, [note_time]
-		inc ax
-		mov word [note_time], ax
-		ret
-
-
 advance_sequence:
                 checkSetting record_mode,.play_mode
-                call inc_and_get_note_time
+                inc word [note_time]
 		ret
 
 .play_mode:
 		checkSetting play_mode,return
-
-                call inc_and_get_note_time
+                ; get and increment note time
+                mov word ax, [note_time]
+                inc ax
+                mov word [note_time], ax
 
 		; check if note needs to end
-		mov word bx, [note_length]
-		cmp ax, bx
+		cmp ax, [note_length]
 		jl return
 
 		; load new note
@@ -429,7 +403,7 @@ memview:
                 cmp al, 17h                     ; bottom left
                 jne .a
                 sub cx, 2
-.a:             cmp al, 00h
+.a:             cmp al, 00h                     ; middle left
                 jne .b
                 add cx, 2
 .b:             
@@ -504,10 +478,6 @@ init:
 
 ; Interrupttabelle init.
 
-		mov word [intab0], break_lbl    ; Interrupttabelle (Divisionsueberlauf)
-						; initialisieren (Offset)
-		mov word [intab0 + 2], cs	; (Segmentadresse)
-
 		mov word [intab0], isr_freqtimer; Interrupttabelle (Timer K1)
 						; initialisieren (Offset)
 		mov word [intab0 + 2], cs	; (Segmentadresse)
@@ -542,9 +512,9 @@ isr_freqtimer:					; Timer fuer lautsprecher
                 checkStatusBit play_note,.out
 
                 ; flip swing value
-                mov byte al, [speaker_swing]
+                in al, ppi_a
 		xor al, ppi_pa3
-		mov byte [speaker_swing], al
+                xor byte [status], ppi_pa3
 		out ppi_a, al
 
 .out:           				; Ausgang aus dem Service
@@ -582,10 +552,12 @@ tonleiter	dw 262 ; c4   0
 		dw 932 ; a#5  22
 		dw 987 ; b5   23
 
+section .bss
+align 16
 ; song data is here
 ;
-song_notes      times data_size*2 dw 0
-song_times      times data_size*2 dw 0
+song_notes      resw data_size*2
+song_times      resw data_size*2
 
 ; incbin "music.bin"
 
