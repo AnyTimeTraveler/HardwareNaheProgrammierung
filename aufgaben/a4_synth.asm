@@ -476,7 +476,7 @@ init:
 						; fully nested
 		out icw_2_4, al
 		jmp short $+2			        ; I/O-Delay
-		mov byte al, 01111100b		; Kanal 0, 1 + 7 am PIC demaskieren
+		mov byte al, 11111100b		; Kanal 0, 1 + 7 am PIC demaskieren
 						; PIT K1, K2 und Lichttaster
 		out ocw_1, al
 
