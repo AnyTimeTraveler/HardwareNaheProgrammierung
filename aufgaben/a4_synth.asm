@@ -8,7 +8,7 @@ status          db 0                            ; Displays the current status to
 play_mode	equ 1				; 1 if in play mode, 0 otherwise
 record_mode	equ 2				; 1 if in record mode, 0 otherwise
 ;nothing	equ 4				; 
-;speaker_swing	equ 8                           ; replaced by it's own value, because broken
+speaker_swing	equ 8                           ; 
 sequence_fire	equ 16				; 
 play_note	equ 32                          ; 
 reset_done	equ 64                          ; 
@@ -21,15 +21,16 @@ reset_counter   equ 4				;
 display_mode	equ 8                           ; 
 memview_mode	equ 16				; 
 mem_clear	equ 32                          ; 
-;nothing	equ 64                          ; 
+silence 	equ 64                          ; 
 breakpoint	equ 128                         ; 
 
 
 data_index	dw 0		        	; index of currently played index
-data_size	equ 128          		; length of data area
+data_size	equ 512          		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
+
 last_input	db 0				; Last keyboad input
 
 ; Konstanten
@@ -120,6 +121,7 @@ start:
 
 		call init			; Controller und Interruptsystem scharfmachen
 		call clear_screen
+
                 jmp main
 
 
@@ -174,6 +176,7 @@ check_switches:
 
                 mov word [song_notes], 0
                 mov word [song_times], 0
+                mov word [note_time], 0
                 setStatusBit clear_done
 .b:             checkSetting breakpoint,return
 break_func:     xchg bx, bx
@@ -261,6 +264,7 @@ check_button:
                 ; display position
                 call display_bx_left
 
+                ; only record time if button was released
                 cmp ax, 0
                 je .time
 
@@ -273,7 +277,7 @@ check_button:
 
 		; write note to ram
 		mov word [song_notes+bx], ax
-                jmp .end
+                jmp .wrap
 
                 ; write note time to ram
 .time:		mov word ax, [note_time]
@@ -282,7 +286,7 @@ check_button:
 		add bx, 2
 
 		; make the buffer wrap around
-		cmp bx, data_size
+.wrap:		cmp bx, data_size
 		jl .end
 		mov word bx, 0
 
@@ -510,8 +514,10 @@ isr_freqtimer:					; Timer fuer lautsprecher
 		push ax
                 ; jump to end if play_note is 0
                 checkStatusBit play_note,.out
+                checkSetting silence,.run
+                jmp .out
 
-                ; flip swing value
+.run:           ; flip swing value
                 in al, ppi_a
 		xor al, ppi_pa3
                 xor byte [status], ppi_pa3
@@ -556,8 +562,8 @@ section .bss
 align 16
 ; song data is here
 ;
-song_notes      resw data_size*2
-song_times      resw data_size*2
+song_notes      resw data_size
+song_times      resw data_size
 
 ; incbin "music.bin"
 
