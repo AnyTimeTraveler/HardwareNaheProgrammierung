@@ -7,6 +7,6 @@
 !*.c
 !*.dat
 !*.sh
-!*.bin
+!*.java
 CMakeFiles/
 
