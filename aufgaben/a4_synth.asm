@@ -26,7 +26,7 @@ breakpoint	equ 128                         ;
 
 
 data_index	dw 0		        	; index of currently played index
-data_size	equ 512          		; length of data area
+data_size	equ 408          		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
@@ -250,7 +250,7 @@ check_button:
 		; enable sound
                 setStatusBit play_note
 
-                mov word ax, bx
+                mov word ax, cx
 
 
 .record_note:	; AX contains current note
@@ -336,11 +336,21 @@ advance_sequence:
 .enable:        setStatusBit play_note
 
                 ; set frequency
-                xchg bx, ax
-		call pit1setscaler
+                push bx
                 call display_bx_right
-                ; restore address into bx
+                mov bx, ax
+
+	        ; divide to get scaler
+		shl bx, 1			; double to match freq / (f * 2) equasion
+		; DX:AX = 1843200
+		mov word dx, 001ch
+		mov word ax, 2000h
+		div bx
                 mov word bx, ax
+
+		call pit1setscaler
+                ; restore address into bx
+                pop bx
 
 		; read length of note
 .skip:		mov word ax, [song_times+bx]
@@ -558,14 +568,303 @@ tonleiter	dw 262 ; c4   0
 		dw 932 ; a#5  22
 		dw 987 ; b5   23
 
-section .bss
+;section .bss
 align 16
 ; song data is here
 ;
-song_notes      resw data_size
-song_times      resw data_size
+;song_notes      resw data_size
+;1
+song_notes      dw 659
+dw 659
+dw 0
 
-; incbin "music.bin"
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 659
+dw 0
+
+;2
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 0
+dw 0
+
+;3
+dw 659
+dw 659
+dw 0
+
+dw 784
+dw 784
+dw 0
+
+dw 523
+dw 523
+dw 0
+
+dw 572
+dw 572
+dw 0
+
+;4
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 659
+dw 659
+
+dw 0
+dw 0
+dw 0
+
+;5
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+;6
+dw 698
+dw 698
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+;7
+dw 659
+dw 659
+dw 0
+
+dw 572
+dw 572
+dw 0
+
+dw 572
+dw 572
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+;8
+dw 572
+dw 572
+dw 572
+
+dw 572
+dw 572
+dw 0
+
+dw 784
+dw 784
+dw 784
+
+dw 784
+dw 784
+dw 0
+
+;9
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 0
+dw 0
+
+;10
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 0
+dw 0
+
+;11
+dw 659
+dw 659
+dw 0
+
+dw 784
+dw 784
+dw 0
+
+dw 523
+dw 523
+dw 0
+
+dw 572
+dw 572
+dw 0
+
+;12
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 659
+dw 659
+
+dw 659
+dw 659
+dw 659
+
+dw 0
+dw 0
+dw 0
+
+;13
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+;14
+dw 698
+dw 698
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+dw 659
+dw 659
+dw 0
+
+;15
+dw 784
+dw 784
+dw 0
+
+dw 784
+dw 784
+dw 0
+
+dw 698
+dw 698
+dw 0
+
+dw 572
+dw 572
+dw 0
+;16
+dw 523
+dw 523
+dw 523
+
+dw 523
+dw 523
+dw 523
+
+dw 523
+dw 523
+dw 523
+
+dw 523
+dw 523
+dw 523
+
+;17
+dw 0
+dw 0
+dw 0
+
+dw 0
+dw 0
+dw 0
+
+dw 0
+dw 0
+dw 0
+
+dw 0
+dw 0
+dw 0
+
+;song_times      resw data_size
+song_times      times 204 dw 90
+
+;incbin "music.bin"
 
 ; vim: set tabstop=8:set noexpandtab:set shiftwidth=8
 
