@@ -8,5 +8,6 @@
 !*.dat
 !*.sh
 !*.java
+!*.bin
 CMakeFiles/
 
