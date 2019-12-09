@@ -26,7 +26,6 @@ breakpoint	equ 128                         ;
 
 
 data_index	dw 0		        	; index of currently played index
-data_size	equ 408          		; length of data area
 
 note_time	dw 0				; time current note is played, in ms
 note_length	dw 0				; time current note is supposed to be played, in ms
@@ -302,8 +301,8 @@ advance_sequence:
 
                 ; set frequency
                 push bx
-                call display_bx_right
                 mov bx, ax
+                call display_bx_right
 
 	        ; divide to get scaler
 		shl bx, 1			; double to match freq / (f * 2) equasion
@@ -539,7 +538,11 @@ tonleiter	dw 262 ; c4   0
 ; song data is here
 ;
 song_notes      incbin "notes.bin"
+                dw 0
 song_times      incbin "times.bin"
+                dw 2000
+; length of data area (in bytes)
+data_size	equ 2*270
 
 
 ; vim: set tabstop=8:set noexpandtab:set shiftwidth=8
