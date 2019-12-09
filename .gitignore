@@ -5,5 +5,7 @@
 !/docs/*
 !*.txt
 !*.c
+!*.dat
+!*.sh
 CMakeFiles/
 
